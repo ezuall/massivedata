@@ -1,3 +1,1 @@
-Git me outa here :-)
-Edit
-Be patient, learning to use git here.
+The demo code shows the basic idea behind massivedata.  This is still very much a work in progress.
