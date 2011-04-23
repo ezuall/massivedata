@@ -1,0 +1,713 @@
+<html> 
+ 
+<head> 
+
+<title>massivedata</title> 
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1"> 
+ 
+<script type="text/javascript" src="sylvester.js"></script> 
+<script type="text/javascript" src="glUtils.js"></script> 
+ 
+<script id="shader-fs" type="x-shader/x-fragment"> 
+  #ifdef GL_ES
+  precision highp float;
+  #endif
+ 
+  varying vec4 vColor;
+  
+  void main(void) {
+    gl_FragColor = vColor;
+  }
+</script> 
+ 
+<script id="shader-vs" type="x-shader/x-vertex"> 
+  attribute vec3 aVertexPosition;
+  attribute vec4 aVertexColor;
+  
+  uniform mat4 uMVMatrix;
+  uniform mat4 uPMatrix;
+  
+  varying vec4 vColor;
+ 
+  void main(void) {
+    gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+    vColor = aVertexColor;
+  }
+</script> 
+ 
+ 
+<script type="text/javascript"> 
+ 
+  var gl;
+  function initGL(canvas) {
+    try {
+      gl = canvas.getContext("experimental-webgl");
+      gl.viewportWidth = canvas.width;
+      gl.viewportHeight = canvas.height;
+    } catch(e) {
+    }
+    if (!gl) {
+      alert("Could not initialise WebGL, sorry :-(");
+    }
+  }
+ 
+ 
+  function getShader(gl, id) {
+    var shaderScript = document.getElementById(id);
+    if (!shaderScript) {
+      return null;
+    }
+ 
+    var str = "";
+    var k = shaderScript.firstChild;
+    while (k) {
+      if (k.nodeType == 3) {
+        str += k.textContent;
+      }
+      k = k.nextSibling;
+    }
+ 
+    var shader;
+    if (shaderScript.type == "x-shader/x-fragment") {
+      shader = gl.createShader(gl.FRAGMENT_SHADER);
+    } else if (shaderScript.type == "x-shader/x-vertex") {
+      shader = gl.createShader(gl.VERTEX_SHADER);
+    } else {
+      return null;
+    }
+ 
+    gl.shaderSource(shader, str);
+    gl.compileShader(shader);
+ 
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      alert(gl.getShaderInfoLog(shader));
+      return null;
+    }
+ 
+    return shader;
+  }
+ 
+ 
+  var shaderProgram;
+  function initShaders() {
+    var fragmentShader = getShader(gl, "shader-fs");
+    var vertexShader = getShader(gl, "shader-vs");
+ 
+    shaderProgram = gl.createProgram();
+    gl.attachShader(shaderProgram, vertexShader);
+    gl.attachShader(shaderProgram, fragmentShader);
+    gl.linkProgram(shaderProgram);
+ 
+    if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+      alert("Could not initialise shaders");
+    }
+ 
+    gl.useProgram(shaderProgram);
+ 
+    shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+    gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+    
+    shaderProgram.vertexColorAttribute = gl.getAttribLocation(shaderProgram, "aVertexColor");
+    gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);    
+ 
+    shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+    shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+  }
+ 
+ 
+  var mvMatrix;
+ 
+  function loadIdentity() {
+    mvMatrix = Matrix.I(4);
+  }
+ 
+ 
+  function multMatrix(m) {
+    mvMatrix = mvMatrix.x(m);
+  }
+ 
+ 
+  function mvTranslate(v) {
+    var m = Matrix.Translation($V([v[0], v[1], v[2]])).ensure4x4();
+    multMatrix(m);
+  }
+
+  function mvRotate(ang, v) {
+    var arad = ang * Math.PI / 180.0;
+    var m = Matrix.Rotation(arad, $V([v[0], v[1], v[2]])).ensure4x4();
+    multMatrix(m);
+  }
+ 
+  var pMatrix;
+  function perspective(fovy, aspect, znear, zfar) {
+    pMatrix = makePerspective(fovy, aspect, znear, zfar);
+  }
+ 
+ 
+  function setMatrixUniforms() {
+    gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, new Float32Array(pMatrix.flatten()));
+    gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, new Float32Array(mvMatrix.flatten()));
+  }
+   
+  function chart()
+  {
+    this.values = [];
+    this.bars = [];
+        
+    // Define which row or column is visible for barchart view    
+    this.visible_row = 0;
+    this.visible_col = 0;
+    
+    this.columns = 0;
+    this.rows = 0;
+    
+    this.column_names = [];
+    this.row_names = [];
+    
+    this.chart_mode = "heatmap";
+    this.perspective = 1.0;
+    
+    this.max_value = -1000000.0;
+    this.min_value =  1000000.0;
+    
+    this.set_perspective = function()
+    {
+      return;
+    }
+        
+    this.draw = function()
+    {
+      for (var i=0; i < this.columns; i++)
+      {
+        for (var j=0; j < this.rows; j++)
+        {
+
+          if (this.mode == "barchart_rows")
+          { 
+            // Conditional drawing
+            if (this.visible_row == j)
+            {
+              this.bars[(i * this.columns) + j].draw(this.chart_mode);
+            }
+          }
+
+          if (this.mode == "barchart_cols")
+          { 
+            // Conditional drawing
+            if (this.visible_col == i)
+            {
+              this.bars[(i * this.columns) + j].draw(this.chart_mode);
+            }
+          }          
+          
+          if (this.mode == "explore" || this.mode == "heatmap")
+          {          
+            // Just draw it
+            this.bars[(i * this.columns) + j].draw(this.chart_mode);
+          } 
+        }
+      }
+    }
+    
+    this.set_chart_mode = function(mode)
+    {
+      this.chart_mode = mode;
+      return;
+    }
+    
+    this.get_chart_mode = function()
+    {
+      return;
+    }
+    
+    this.initialise = function()
+    {
+      for (var i=0; i < this.bars.length; i++)
+      {
+        this.bars[i].set_vertices(this.rows/2, this.columns/2);
+        this.bars[i].set_colours();        
+      }
+    }
+    
+    this.values_to_bars = function()
+    {
+      counter = 0;
+      for (var i=0; i < this.rows; i++)
+      {
+        for (var j=0; j < this.columns; j++)
+        {
+          this.bars[counter] = new bar();
+          this.bars[counter].height = this.values[counter];  // Set the actual height
+          
+          // Caculate the height to draw the bar so that it fits into the screen
+          if (this.rows >= this.columns)
+          {
+            this.bars[counter].draw_height = ((this.values[counter]/this.max_value) * this.rows) / 2;
+          }
+          else
+          {
+            this.bars[counter].draw_height = ((this.values[counter]/this.max_value) * this.columns) / 2;
+          }
+          this.bars[counter].column_number = i;
+          this.bars[counter].row_number = j; 
+          this.bars[counter].scale_multiplier = this.bars[counter].height/this.max_value;  // To fit height into window          
+          counter = counter + 1;
+        }
+      }
+    }
+    
+    this.load_values = function()
+    {
+       // This will be replaced by steps to load the values from a file, current hard coding just for testing
+                      
+       for (var i=0;i < 625; i++)
+       {
+         this.values[i]=Math.floor(Math.random()*50);
+       }
+                      
+       
+       this.rows = 25;
+       this.columns = 25;
+       
+//       this.column_names[0] = "c0";
+//       this.column_names[1] = "c1";
+//       this.column_names[2] = "c2";
+//       ...
+
+
+//       this.row_names[0] = "r0";
+//       this.row_names[1] = "r1";
+//       this.row_names[2] = "r2";       
+//       ...
+       
+       for (var i=0;i < this.values.length;i++)
+       {
+         if (this.values[i] > this.max_value)
+         {
+           this.max_value = this.values[i];
+         }
+
+         if (this.values[i] < this.min_value)
+         {
+           this.min_value = this.values[i];
+         }
+         
+       }       
+
+    }
+  }
+  
+  function bar()
+  {
+    this.height = 0.0;
+    this.draw_height = 0.0;
+    
+    this.scale_multiplier = 0.0;  // For figuring out the colour (scale)
+    
+    this.column_number = -1;
+    this.row_number = -1;
+    
+    this.colour = "ffffff";
+    
+    this.vertices = [];
+    this.colours = [];
+  
+    this.vertex_position_buffer = [];
+    this.vertex_colour_buffer = [];
+    
+    this.size = 0.4995;
+    
+    this.draw = function(mode)
+    {
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vertex_position_buffer);
+    	gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, this.vertex_position_buffer.itemSize, gl.FLOAT, false, 0, 0);
+    
+	    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertex_colour_buffer);
+	    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, this.vertex_colour_buffer.itemSize, gl.FLOAT, false, 0, 0);
+	    setMatrixUniforms();
+	    gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.vertex_position_buffer.numItems);	    
+    }
+    
+    this.initialise = function()
+    {
+    }
+    
+    this.set_vertices = function(x_offset, y_offset)
+    {
+      this.vertex_position_buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vertex_position_buffer);
+      
+      x_offset_with_size = x_offset - this.size;
+      y_offset_with_size = y_offset - this.size;
+      
+      this.vertices = [this.column_number + this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  this.draw_height,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  this.draw_height,
+                       this.column_number + this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  this.draw_height,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  this.draw_height,
+                       
+                       this.column_number - this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  this.draw_height,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  this.draw_height,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  0.0,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  0.0,
+                       
+                       this.column_number + this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  0.0,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  0.0,
+                       this.column_number + this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  0.0,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  0.0,
+
+                       this.column_number + this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  0.0,
+                       this.column_number + this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  0.0,
+                       this.column_number + this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  this.draw_height,
+                       this.column_number + this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  this.draw_height,
+                       
+                       this.column_number + this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  0.0,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  0.0,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  this.draw_height,
+                       this.column_number + this.size - x_offset_with_size,  this.row_number + this.size - y_offset_with_size,  this.draw_height,
+                       
+                       this.column_number + this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  0.0,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  0.0,
+                       this.column_number - this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  this.draw_height,
+                       this.column_number + this.size - x_offset_with_size,  this.row_number - this.size - y_offset_with_size,  this.draw_height];
+                       
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+      this.vertex_position_buffer.itemSize = 3;
+      this.vertex_position_buffer.numItems = 24;
+    }
+    
+    this.set_colours = function()
+    {
+      this.colours = [];
+      this.vertex_colour_buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vertex_colour_buffer);
+      
+      for (var i=0; i < 24; i++) 
+      {
+        if (this.scale_multiplier < 0.5)
+        {
+          green_value = 1.0;
+          red_value = 2.0 * this.scale_multiplier;
+        }
+        else
+        {
+          green_value = 2 - 2.0 * this.scale_multiplier;
+          red_value = 1.0;
+        }
+        this.colours = this.colours.concat([red_value, green_value, 0.0, 1.0]);
+      }
+              
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.colours), gl.STATIC_DRAW);
+      this.vertex_colour_buffer.itemSize = 4;
+      this.vertex_colour_buffer.numItems = 4;
+    }
+    
+  }
+  
+  var my_chart = new chart();
+  my_chart.load_values();
+  my_chart.values_to_bars();
+  
+  function initBuffers() 
+  {       
+    my_chart.initialise();                    
+  }
+ 
+  x_rot = 0;
+  y_rot = 0;
+  z_rot = 0;
+  zoom = 0;
+  perspective_setting = 3;
+  
+  function drawScene() 
+  { 
+    
+    if (my_chart.mode == "explore")
+    {
+      if (my_chart.rows >= my_chart.columns)
+      {
+        camera_distance = my_chart.rows / (Math.tan(perspective_setting * 0.5) );
+      }
+      else
+      {
+        camera_distance = my_chart.columns / (Math.tan(perspective_setting * 0.5) ) ;
+      }
+    }
+    else
+    {
+      if (my_chart.rows >= my_chart.columns)
+      {
+        camera_distance = my_chart.rows / (Math.tan(perspective_setting * 0.5) ) + 60 * my_chart.rows;
+      }
+      else
+      {
+        camera_distance = my_chart.columns / (Math.tan(perspective_setting * 0.5) ) + 60 * my_chart.columns ;
+      }
+    }
+
+    gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    perspective(perspective_setting, gl.viewportWidth / gl.viewportHeight, 0.1, camera_distance + 10000.0);
+      
+
+    	loadIdentity();
+    	
+    	// Move chart away from camera
+     	mvTranslate([0, 0, -camera_distance - zoom]);
+     	
+     	// Rotate chart
+     	mvRotate(x_rot, [1, 0, 0]);
+     	mvRotate(y_rot, [0, 1, 0]);
+     	mvRotate(z_rot, [0, 0, 1]);
+
+        my_chart.draw();    	
+  }
+ 
+ 
+ 
+  function webGLStart() 
+  {
+  
+    // Set the initial graph mode
+    set_heatmap();
+    
+    // Hide explore mode controls
+    obj = document.getElementById("explore_controls").style;
+    obj.display = "none";
+     
+    var canvas = document.getElementById("flexichart");
+    initGL(canvas);
+    initShaders();
+    initBuffers();
+ 
+    gl.clearColor(0.9, 0.9, 0.9, 1.0);
+ 
+    gl.clearDepth(1.0);
+ 
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+ 
+    setInterval(drawScene, 15);
+  }
+ 
+  function set_x(new_value)
+  {
+    document.getElementById("x_val").innerHTML=new_value;
+    x_rot = new_value;
+  }
+ 
+  function set_y(new_value)
+  {
+//    document.getElementById("y_val").innerHTML=new_value;
+    y_rot = new_value;
+  }
+   
+  function set_z(new_value)
+  {
+    document.getElementById("z_val").innerHTML=new_value;
+    z_rot = new_value;
+  }
+  
+  function set_zoom(new_value)
+  {
+    document.getElementById("zoom_val").innerHTML=new_value;
+    zoom = new_value;
+  }
+  
+  function set_perspective(new_value)
+  {
+    perspective_setting = new_value;
+  }
+  
+  function set_heatmap()
+  {
+    set_x(0);
+    set_y(0);
+    set_z(0);
+    set_zoom(0);  
+    set_perspective(1); 
+    
+    // Hide explore mode controls 
+    obj = document.getElementById("explore_controls").style;
+    obj.display = "none";
+    
+    // Hide barchart rows controls 
+    obj = document.getElementById("barchart_rows_controls").style;
+    obj.display = "none"; 
+
+    // Hide barchart cols controls 
+    obj = document.getElementById("barchart_cols_controls").style;
+    obj.display = "none"; 
+        
+    my_chart.mode = "heatmap"; 
+  }
+  
+  function set_barchart_rows()
+  {
+    set_x(-90);
+    set_y(0);
+    set_z(0);
+    set_zoom(0);  
+    set_perspective(1);  
+
+    // Set the active column chooser max
+    obj = document.getElementById("active_row_slider");
+    obj.max = my_chart.rows - 1;    
+
+
+    // Hide explore mode controls 
+    obj = document.getElementById("explore_controls").style;
+    obj.display = "none"; 
+
+    // Hide barchart cols controls 
+    obj = document.getElementById("barchart_cols_controls").style;
+    obj.display = "none"; 
+    
+    // Show barchart rows controls 
+    obj = document.getElementById("barchart_rows_controls").style;
+    obj.display = "block"; 
+    
+    my_chart.mode = "barchart_rows";
+  }
+  
+  function set_barchart_cols()
+  {
+    set_x(90);
+    set_y(180);
+    set_z(270);
+    set_zoom(0);  
+    set_perspective(1);  
+
+    // Set the active column chooser max
+    obj = document.getElementById("active_col_slider");
+    obj.max = my_chart.columns - 1;    
+    
+    // Hide explore mode controls 
+    obj = document.getElementById("explore_controls").style;
+    obj.display = "none"; 
+    
+    // Hide barchart rows controls 
+    obj = document.getElementById("barchart_rows_controls").style;
+    obj.display = "none"; 
+    
+    // Show barchart cols controls 
+    obj = document.getElementById("barchart_cols_controls").style;
+    obj.display = "block"; 
+    
+    my_chart.mode = "barchart_cols";
+  }
+  
+  function set_explore_mode()
+  {
+    // Show explore mode controls 
+    obj = document.getElementById("explore_controls").style;
+    obj.display = "block"; 
+    
+    // Hide barchart rows controls 
+    obj = document.getElementById("barchart_rows_controls").style;
+    obj.display = "none"; 
+
+    // Hide barchart cols controls 
+    obj = document.getElementById("barchart_cols_controls").style;
+    obj.display = "none";    
+
+    set_x(135);
+    set_y(180);
+    set_z(225);
+    set_zoom(0);     
+    set_perspective(45);  
+    
+    my_chart.mode = "explore";
+  }  
+  
+  function set_active_row(new_row)
+  {
+    my_chart.visible_row = new_row;
+    document.getElementById("active_row_val").innerHTML = new_row;
+  }
+  
+  function set_active_column(new_col)
+  {
+    my_chart.visible_col = new_col;
+    document.getElementById("active_col_val").innerHTML = new_col;
+  }
+  
+</script> 
+ 
+<style>
+  h1 { font-family: 'Josefin Sans Std Light', arial, serif; }
+  h2 { font-family: 'Josefin Sans Std Light', arial, serif; }
+  h3 { font-family: 'Josefin Sans Std Light', arial, serif; }
+  h4 { font-family: 'Josefin Sans Std Light', arial, serif; }
+</style>
+
+</head> 
+ 
+ 
+<body onload="webGLStart();"> 
+
+  <link href='http://fonts.googleapis.com/css?family=Josefin+Sans+Std+Light&subset=latin' rel='stylesheet' type='text/css'>
+  
+  <h1><center>massivedata</center></h1>
+  <center>
+  <h4>
+    This is a demonstration of the massivedata tool for data visualisation using webgl<br>
+    For demonstration purposes values are being randomly generated for the chart below.
+  </h4>
+  
+  <table>
+    <td>
+      <canvas id="flexichart" style="border: none;" width="512" height="512"></canvas> 
+    </td>
+    <td width="512" valign="top">
+      <h2>mode</h2>
+  
+      <h4>
+        <INPUT TYPE=RADIO NAME="mode" VALUE="heatmap_mode" onchange="set_heatmap()" checked>Heat Map<BR>
+        <INPUT TYPE=RADIO NAME="mode" VALUE="barchart_mode" onchange="set_barchart_rows()">Bar Chart - Rows<BR>
+        <div id="barchart_rows_controls">
+          <h3>active row</h3>
+          <input id="active_row_slider" type="range" min="0" max="9" value="0" step="1" onchange="set_active_row(this.value)"  />
+          <span id="active_row_val">0</span>
+        </div>
+        <INPUT TYPE=RADIO NAME="mode" VALUE="barchart_mode" onchange="set_barchart_cols()">Bar Chart - Columns<BR>       
+        <div id="barchart_cols_controls">
+          <h3>active column</h3>
+          <input id="active_col_slider" type="range" min="0" max="9" value="0" step="1" onchange="set_active_column(this.value)"  />
+          <span id="active_col_val">0</span>
+        </div>
+        
+        <INPUT TYPE=RADIO NAME="mode" VALUE="explore_mode" onchange="set_explore_mode()">Explore<BR>
+      </h4>
+
+      <div id="explore_controls">
+        <h3>rotation</h3>
+        <input type="range" min="90" max="179" value="135" step="1" onchange="set_x(this.value)"  />
+        <span id="x_val">0</span>
+        <input type="range" min="0" max="360" value="225" step="5" onchange="set_z(this.value)" />
+        <span id="z_val">0</span>
+        <h3>camera distance</h3>
+        <input type="range" min="-50" max="50" value="0" step="1" onchange="set_zoom(this.value)" />
+        <span id="zoom_val">0</span>
+      </div>
+    </td>
+  </table>
+  <h4>Copyright Johan Badenhorst (shockinggrey.com)</h4>
+
+  <a title="Post to Google Buzz" class="google-buzz-button" href="http://www.google.com/buzz/post" data-button-style="small-count" data-locale="en_GB"></a>
+  <script type="text/javascript" src="http://www.google.com/buzz/api/button.js"></script>
+
+  </center>
+<script type="text/javascript">
+var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+</script>
+<script type="text/javascript">
+try{ 
+var pageTracker = _gat._getTracker("UA-10162183-1");
+pageTracker._trackPageview();
+} catch(err) {} 
+</script>
+</body> 
+ 
+</html> 
